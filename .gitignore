@@ -1,0 +1,22 @@
+# Secrets and deployment-local configuration
+/config/config.php
+.env
+.env.*
+
+# Runtime threat data and logs
+/data/*.json
+/logs/
+
+# Temporary and editor files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+.vscode/
+.idea/
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
