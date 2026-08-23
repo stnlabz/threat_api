@@ -14,6 +14,7 @@ The service accepts authenticated threat reports, stores operational events, and
 - `GET /events` — legacy alias for the threat feed
 - `GET /intel` — aggregate statistics, live analysis, patterns, and blocklist data
 - `GET /patterns` — dynamically observed firewall patterns
+- `GET /rss` or `GET /feed.xml` — sanitized RSS 2.0 summaries for human readers
 - `GET /sl-feed` — compact text feed for Second Life consumers
 - `POST /threats` — authenticated ingestion using `X-API-KEY`
 

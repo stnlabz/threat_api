@@ -24,6 +24,8 @@ Sentinel clients
 
 Apache rewrites supported requests to `index.php`. The router normalizes `/api` and `/v1` prefixes, dispatches by HTTP method and path, and returns JSON except for the root HTML page and `/sl-feed` text output.
 
+The `/rss` and `/feed.xml` routes provide the latest 50 events as cached RSS 2.0 summaries. They omit source IPs, raw request URLs, and request payloads while retaining human-readable type, target, pattern, severity, and observation time when available.
+
 Authenticated ingestion compares the `X-API-KEY` request header with `API_SECRET`, appends a normalized event to the threat store, and returns a status response. Read endpoints load the same store and produce latest-first results.
 
 ## Storage boundary

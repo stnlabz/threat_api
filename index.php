@@ -86,6 +86,53 @@ function get_dynamic_patterns(array $threats): array {
     return array_values(array_unique($patterns));
 }
 
+/**
+ * Escapes untrusted threat fields for use in RSS XML.
+ */
+function rss_escape(string $value): string {
+    return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+/**
+ * Builds an absolute URL without trusting arbitrary Host header characters.
+ */
+function request_base_url(): string {
+    $host = (string)($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost');
+    if (!preg_match('/^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/', $host)) {
+        $host = 'localhost';
+    }
+
+    $https = strtolower((string)($_SERVER['HTTPS'] ?? ''));
+    $scheme = ($https !== '' && $https !== 'off' && $https !== '0') ? 'https' : 'http';
+    return $scheme . '://' . $host;
+}
+
+/**
+ * Converts a raw threat event into a concise, non-sensitive human summary.
+ */
+function summarize_threat(array $threat): array {
+    $details = is_array($threat['details'] ?? null) ? $threat['details'] : [];
+    $type = trim((string)($threat['type'] ?? 'unknown threat')) ?: 'unknown threat';
+    $pattern = trim((string)($details['matched_pattern'] ?? ''));
+    $target = trim((string)($details['domain'] ?? $details['site_id'] ?? ''));
+    $severity = trim((string)($details['severity'] ?? ''));
+
+    $title = ucfirst(str_replace(['_', '-'], ' ', $type));
+    if ($pattern !== '') {
+        $title .= ' detected: ' . $pattern;
+    } else {
+        $title .= ' detected';
+    }
+
+    $summary = [];
+    if ($target !== '') $summary[] = 'Target: ' . $target;
+    if ($pattern !== '') $summary[] = 'Pattern: ' . $pattern;
+    if ($severity !== '') $summary[] = 'Severity: ' . ucfirst($severity);
+    $summary[] = 'Observed: ' . (string)($threat['created_at'] ?? 'Unknown');
+
+    return ['title' => $title, 'description' => implode("\n", $summary)];
+}
+
 // --- Routing ------------------------------------------------------------------
 
 $uri = $_SERVER['REQUEST_URI'] ?? '/';
@@ -117,6 +164,49 @@ if ($method === 'GET' && preg_match('#^/intell?$#i', $clean_path)) {
 if ($method === 'GET' && $clean_path === '/patterns') {
     header('Content-Type: application/json');
     echo json_encode(['patterns' => get_dynamic_patterns(load_threats())]);
+    exit;
+}
+
+// Human-readable RSS 2.0 feed. Sensitive fields such as source IP and raw
+// request payloads are intentionally omitted.
+if ($method === 'GET' && preg_match('#^/(rss|feed\.xml)$#i', $clean_path)) {
+    $threats = array_slice(load_threats(), 0, 50);
+    $base_url = request_base_url();
+    $feed_url = $base_url . '/rss';
+    $build_time = isset($threats[0]['created_at'])
+        ? (strtotime((string)$threats[0]['created_at']) ?: time())
+        : time();
+
+    header('Content-Type: application/rss+xml; charset=utf-8');
+    header('Cache-Control: public, max-age=300');
+    echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+    ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>STN-LABZ Threat Intelligence</title>
+  <link><?= rss_escape($base_url . '/') ?></link>
+  <description>Sanitized, human-readable summaries of recently observed threats.</description>
+  <language>en-us</language>
+  <lastBuildDate><?= rss_escape(gmdate(DATE_RSS, $build_time)) ?></lastBuildDate>
+  <ttl>5</ttl>
+  <atom:link href="<?= rss_escape($feed_url) ?>" rel="self" type="application/rss+xml" />
+<?php foreach ($threats as $threat):
+    $summary = summarize_threat($threat);
+    $id = (string)($threat['id'] ?? hash('sha256', serialize($threat)));
+    $timestamp = strtotime((string)($threat['created_at'] ?? '')) ?: $build_time;
+?>
+  <item>
+    <title><?= rss_escape($summary['title']) ?></title>
+    <link><?= rss_escape($base_url . '/') ?></link>
+    <guid isPermaLink="false"><?= rss_escape($id) ?></guid>
+    <pubDate><?= rss_escape(gmdate(DATE_RSS, $timestamp)) ?></pubDate>
+    <category><?= rss_escape((string)($threat['type'] ?? 'unknown')) ?></category>
+    <description><?= rss_escape($summary['description']) ?></description>
+  </item>
+<?php endforeach; ?>
+</channel>
+</rss>
+    <?php
     exit;
 }
 
@@ -212,8 +302,19 @@ if ($clean_path === '/') {
     header('Content-Type: text/html; charset=utf-8');
     ?>
     <!DOCTYPE html>
-    <html>
-    <head><title>STN-Labz API</title></head>
+    <html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>STN-Labz API</title>
+        <link rel="alternate" type="application/rss+xml" title="STN-LABZ Threat Intelligence" href="/rss">
+        <style>
+            body { font-family: system-ui, sans-serif; margin: 2rem; color: #202124; }
+            footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #dadce0; }
+            .rss-link { display: inline-flex; align-items: center; gap: .5rem; color: #b45309; text-decoration: none; }
+            .rss-link:hover, .rss-link:focus { text-decoration: underline; }
+        </style>
+    </head>
     <body>
         <h3>STN-Labz Intelligence API v1</h3>
         <ul>
@@ -221,7 +322,14 @@ if ($clean_path === '/') {
             <li><a href="events">/events</a> - Legacy Feed</li>
             <li><a href="intel">/intel</a> - Intelligence & Analysis</li>
             <li><a href="patterns">/patterns</a> - Dynamic Firewall Patterns</li>
+            <li><a href="rss">/rss</a> - Human-readable RSS Threat Feed</li>
         </ul>
+        <footer>
+            <a href="/rss" class="rss-link" aria-label="Subscribe to the STN-LABZ Threat Intelligence RSS feed" title="Subscribe via RSS">
+                <img src="/assets/rss.svg" width="20" height="20" alt="">
+                Threat Intelligence RSS
+            </a>
+        </footer>
     </body>
     </html>
     <?php

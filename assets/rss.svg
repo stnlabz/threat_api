@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="rss-title">
+  <title id="rss-title">RSS</title>
+  <rect width="24" height="24" rx="4" fill="#f97316"/>
+  <circle cx="6.5" cy="17.5" r="1.8" fill="#fff"/>
+  <path d="M5 11a8 8 0 0 1 8 8h3A11 11 0 0 0 5 8v3Z" fill="#fff"/>
+  <path d="M5 6a13 13 0 0 1 13 13h3A16 16 0 0 0 5 3v3Z" fill="#fff"/>
+</svg>
