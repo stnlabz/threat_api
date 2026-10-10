@@ -210,10 +210,55 @@ if ($method === 'GET' && preg_match('#^/(rss|feed\.xml)$#i', $clean_path)) {
     exit;
 }
 
+/**
+ * Classifies the public threat feed without altering stored observations.
+ * Repeated pattern matches escalate relevance on the third observation
+ * from the same IP within the preceding 24 hours.
+ */
+function classify_threat_feed(array $threats): array {
+    $history = [];
+    $classified = [];
+    foreach (array_reverse($threats) as $threat) {
+        if (!is_array($threat)) continue;
+        $type = strtolower(trim((string)($threat['type'] ?? '')));
+        $details = is_array($threat['details'] ?? null) ? $threat['details'] : [];
+        $pattern = strtolower((string)($details['matched_pattern'] ?? ''));
+        $ip = (string)($threat['ip'] ?? '');
+        $time = strtotime((string)($threat['created_at'] ?? ''));
+        $is_malware = strpos($type, 'malware') !== false || strpos($pattern, 'malware') !== false;
+        $is_intrusion = strpos($type, 'intrusion') !== false || strpos($pattern, 'intrusion') !== false;
+        $is_pattern = $type === 'pattern_match';
+
+        $severity = 'LOW';
+        $relevance = 'LOW';
+        if ($is_malware || $is_intrusion) {
+            $severity = 'HIGH';
+            $relevance = 'HIGH';
+        } elseif ($is_pattern) {
+            $severity = 'MEDIUM';
+            $relevance = 'MEDIUM';
+            if ($ip !== '' && $time !== false) {
+                $history[$ip] = array_values(array_filter(
+                    $history[$ip] ?? [],
+                    static function ($previous) use ($time): bool {
+                        return $previous <= $time && $previous >= $time - 86400;
+                    }
+                ));
+                $history[$ip][] = $time;
+                if (count($history[$ip]) >= 3) $relevance = 'HIGH';
+            }
+        }
+        $threat['severity'] = $severity;
+        $threat['relevance'] = $relevance;
+        $classified[] = $threat;
+    }
+    return array_reverse($classified);
+}
+
 // 3. GET /threats & /events (RAW DATA - Latest First)
 if ($method === 'GET' && preg_match('#^/(threats|events)$#i', $clean_path)) {
     header('Content-Type: application/json');
-    echo json_encode(['threats' => load_threats()], JSON_PRETTY_PRINT);
+    echo json_encode(['threats' => classify_threat_feed(load_threats())], JSON_PRETTY_PRINT);
     exit;
 }
 
